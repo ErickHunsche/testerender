@@ -27,7 +27,9 @@ let connectionStatus = "disconnected"
 venom
   .create({
     session: "apizap",
-    headless: true, // HEADLESS ativado em produção!
+    headless: true, // necessário na Render
+    useChrome: false, // não tenta instalar o Chrome
+    browserPath: "/usr/bin/chromium", // Render já tem o Chromium instalado
     logQR: false,
     statusFind: (statusSession, session) => {
       console.log("Status Session:", statusSession)
@@ -38,11 +40,9 @@ venom
         timestamp: new Date().toISOString(),
         connected: statusSession === "connected",
       })
-
-      connectionStatus = statusSession
     },
     qrCallback: (base64Qr, asciiQR, attempts, urlCode) => {
-      console.log("QR Code tentativa:", attempts)
+      console.log("QR Code gerado, tentativa:", attempts)
 
       io.emit("qr", {
         qr: base64Qr,
@@ -51,6 +51,7 @@ venom
       })
     },
   })
+  
   .then((client) => {
     venomClient = client
     connectionStatus = "connected"
