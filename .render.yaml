@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: apizap-backend
+    env: node
+    plan: free
+    buildCommand: "npm install"
+    startCommand: "node server.js"
+    envVars:
+      - key: FRONTEND_URL
+        value: https://seufrontend.render.com  # Substitua pelo endereço real do seu frontend
