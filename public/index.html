@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conectar WhatsApp Bot</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; margin-top: 20px; background-color: #f4f4f4; }
+        #status { margin-bottom: 20px; padding: 10px; border-radius: 5px; }
+        .status-disconnected { background-color: #ffdddd; border: 1px solid #ffaaaa; color: #D8000C; }
+        .status-qr { background-color: #e6f7ff; border: 1px solid #b3e0ff; color: #007bff;}
+        .status-connected { background-color: #ddffdd; border: 1px solid #aaffaa; color: #4F8A10; }
+        .status-initializing { background-color: #fff3cd; border: 1px solid #ffeeba; color: #856404;}
+        .status-error { background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;}
+        #qr-container { margin-top: 20px; padding: 10px; background-color: white; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.1); text-align: center;}
+        #qr-container img { max-width: 300px; height: auto; }
+        #qr-placeholder { color: #777; }
+        button { padding: 10px 15px; margin-top: 15px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        #logs { margin-top: 20px; width: 80%; max-width: 600px; background-color: #333; color: #fff; padding: 10px; border-radius: 5px; height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.9em; }
+        .log-entry { border-bottom: 1px solid #555; padding-bottom: 5px; margin-bottom: 5px; }
+        .log-entry:last-child { border-bottom: none; }
+    </style>
+</head>
+<body>
+    <h1>Status do WhatsApp Bot</h1>
+    <div id="status" class="status-disconnected">Desconectado</div>
+    <div id="qr-container">
+        <p id="qr-placeholder">Aguardando QR Code...</p>
+        <img id="qr-image" src="" alt="QR Code do WhatsApp" style="display:none;">
+        <p id="qr-attempts"></p>
+    </div>
+    <button id="restart-button">Reiniciar Bot</button>
+    <button id="get-qr-button" style="display:none;">Pedir QR Novamente</button>
+
+    <h2>Logs do Frontend:</h2>
+    <div id="logs"></div>
+
+    <script src="/socket.io/socket.io.js"></script> <!-- Ou a URL completa se o backend estiver em outro domínio/porta -->
+    <script>
+        // Configure esta URL para o endereço do seu backend na Render.com
+        const backendUrl = window.location.origin; // Assume mesmo domínio. Mude se for diferente: 'https://seu-backend.onrender.com'
+        const socket = io(backendUrl);
+
+        const statusDiv = document.getElementById('status');
+        const qrPlaceholder = document.getElementById('qr-placeholder');
+        const qrImage = document.getElementById('qr-image');
+        const qrAttemptsP = document.getElementById('qr-attempts');
+        const restartButton = document.getElementById('restart-button');
+        const getQrButton = document.getElementById('get-qr-button');
+        const logsDiv = document.getElementById('logs');
+
+        function addLog(message, type = 'info') {
+            const logEntry = document.createElement('div');
+            logEntry.classList.add('log-entry');
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            if (type === 'error') {
+                logEntry.style.color = 'red';
+            }
+            logsDiv.appendChild(logEntry);
+            logsDiv.scrollTop = logsDiv.scrollHeight; // Auto-scroll
+        }
+
+        socket.on('connect', () => {
+            addLog('Conectado ao servidor Socket.IO!');
+            statusDiv.textContent = 'Conectado ao servidor, aguardando status do bot...';
+            statusDiv.className = 'status-initializing';
+        });
+
+        socket.on('disconnect', () => {
+            addLog('Desconectado do servidor Socket.IO.', 'error');
+            statusDiv.textContent = 'Desconectado do Servidor!';
+            statusDiv.className = 'status-disconnected';
+            qrImage.style.display = 'none';
+            qrPlaceholder.textContent = 'Conexão perdida. Tente recarregar.';
+            qrPlaceholder.style.display = 'block';
+        });
+
+        socket.on('status', (data) => {
+            addLog(`Status recebido: ${data.status} - ${data.message || ''} (Conectado: ${data.connected})`);
+            statusDiv.textContent = `Status: ${data.status} ${data.message ? `- ${data.message}` : ''} (Sessão: ${data.sessionName || 'N/A'})`;
+            statusDiv.className = ''; // Limpa classes anteriores
+
+            getQrButton.style.display = 'none'; // Esconde por padrão
+
+            if (data.status === 'connected') {
+                statusDiv.classList.add('status-connected');
+                qrImage.style.display = 'none';
+                qrPlaceholder.textContent = 'WhatsApp Conectado!';
+                qrPlaceholder.style.display = 'block';
+                qrAttemptsP.textContent = '';
+            } else if (data.status === 'qr') {
+                statusDiv.classList.add('status-qr');
+                qrPlaceholder.textContent = 'Escaneie o QR Code abaixo:';
+                if (data.qrCodeAvailable === false && !socket.qr_code_image_being_shown) { // Adiciona uma flag para evitar limpar se o QR já estiver na tela
+                    qrImage.style.display = 'none';
+                    qrPlaceholder.textContent = 'Aguardando QR Code...';
+                }
+                getQrButton.style.display = 'block'; // Mostra o botão para pedir QR
+            } else if (data.status === 'initializing') {
+                statusDiv.classList.add('status-initializing');
+                qrImage.style.display = 'none';
+                qrPlaceholder.textContent = 'Inicializando...';
+                qrPlaceholder.style.display = 'block';
+            } else if (data.status === 'error') {
+                statusDiv.classList.add('status-error');
+                qrImage.style.display = 'none';
+                qrPlaceholder.textContent = `Erro: ${data.message || 'Ocorreu um erro.'}`;
+                qrPlaceholder.style.display = 'block';
+            }
+            else {
+                statusDiv.classList.add('status-disconnected'); // Default
+                qrImage.style.display = 'none';
+                qrPlaceholder.textContent = 'Aguardando conexão ou QR Code...';
+                qrPlaceholder.style.display = 'block';
+                qrAttemptsP.textContent = '';
+            }
+        });
+
+        socket.on('qr', (data) => {
+            addLog(`QR Code recebido (Tentativa: ${data.attempts})`);
+            if (data.qr) {
+                qrImage.src = data.qr; // data.qr é a string base64 da imagem
+                qrImage.style.display = 'block';
+                qrPlaceholder.style.display = 'none';
+                qrAttemptsP.textContent = `Tentativa: ${data.attempts || 0}`;
+                socket.qr_code_image_being_shown = true; // Flag para indicar que o QR está na tela
+            } else {
+                qrImage.style.display = 'none';
+                qrPlaceholder.textContent = 'Erro ao carregar QR Code.';
+                qrPlaceholder.style.display = 'block';
+                qrAttemptsP.textContent = '';
+                socket.qr_code_image_being_shown = false;
+            }
+        });
+
+        restartButton.addEventListener('click', () => {
+            addLog('Solicitando reinício do bot...');
+            socket.emit('restart-bot');
+        });
+
+        getQrButton.addEventListener('click', () => {
+            addLog('Solicitando QR Code novamente...');
+            socket.emit('get-qr');
+        });
+
+        // Solicitar status inicial ao conectar (opcional, o backend já envia)
+        // socket.emit('get-status');
+    </script>
+</body>
+</html>
